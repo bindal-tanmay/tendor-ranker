@@ -1,8 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
-import RankedTable from '@/components/RankedTable'
+import { useRouter, useParams } from 'next/navigation'
 import { VendorResult } from '@/lib/scorer'
 
 interface TenderResults {
@@ -11,35 +10,22 @@ interface TenderResults {
   results: VendorResult[]
 }
 
-export default function Dashboard() {
+export default function ReportPage() {
   const router = useRouter()
-  const [data, setData] = useState<TenderResults | null>(null)
-  const [exporting, setExporting] = useState(false)
+  const params = useParams()
+  const vendorId = params.id as string
+  const [vendor, setVendor] = useState<VendorResult | null>(null)
 
   useEffect(() => {
     const stored = sessionStorage.getItem('tenderResults')
     if (!stored) { router.push('/'); return }
-    setData(JSON.parse(stored))
-  }, [router])
+    const data: TenderResults = JSON.parse(stored)
+    const found = data.results.find(v => v.vendorId === vendorId)
+    if (!found) { router.push('/dashboard'); return }
+    setVendor(found)
+  }, [vendorId, router])
 
-  async function handleExport() {
-    if (!data) return
-    setExporting(true)
-    const res = await fetch('/api/export', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ results: data.results, tenderId: data.tenderId })
-    })
-    const blob = await res.blob()
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `tender-report-${data.tenderId}.txt`
-    a.click()
-    setExporting(false)
-  }
-
-  if (!data) {
+  if (!vendor) {
     return (
       <div className="min-h-screen bg-gray-950 flex items-center justify-center">
         <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -49,48 +35,67 @@ export default function Dashboard() {
 
   return (
     <main className="min-h-screen bg-gray-950 text-white">
-      <div className="max-w-5xl mx-auto px-6 py-12">
+      <div className="max-w-4xl mx-auto px-6 py-12">
+        <button
+          onClick={() => router.push('/dashboard')}
+          className="text-gray-400 hover:text-white text-sm mb-8 flex items-center gap-2"
+        >
+          ← Back to rankings
+        </button>
 
-        {/* Header */}
-        <div className="flex items-center justify-between mb-10">
-          <div>
-            <h1 className="text-3xl font-bold">Evaluation Results</h1>
-            <p className="text-gray-400 mt-1">
-              {data.results.length} vendors ranked across {data.criteria.length} criteria
-            </p>
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold">{vendor.vendorName}</h1>
+          <p className="text-gray-400 mt-1">
+            Rank #{vendor.rank} · {vendor.percentage}% match
+          </p>
+        </div>
+
+        {/* Score summary */}
+        <div className="grid grid-cols-3 gap-4 mb-8">
+          <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 text-center">
+            <div className="text-3xl font-bold text-white">{vendor.percentage}%</div>
+            <div className="text-xs text-gray-500 mt-1">Overall Match</div>
           </div>
-          <div className="flex gap-3">
-            <button
-              onClick={() => router.push('/')}
-              className="px-4 py-2 border border-gray-700 rounded-lg text-sm hover:bg-gray-900 transition-all"
-            >
-              New Analysis
-            </button>
-            <button
-              onClick={handleExport}
-              disabled={exporting}
-              className="px-4 py-2 bg-white text-gray-950 rounded-lg text-sm font-medium hover:bg-gray-100 disabled:opacity-40 transition-all"
-            >
-              {exporting ? 'Exporting...' : 'Export Report'}
-            </button>
+          <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 text-center">
+            <div className="text-3xl font-bold text-white">#{vendor.rank}</div>
+            <div className="text-xs text-gray-500 mt-1">Ranking</div>
+          </div>
+          <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 text-center">
+            <div className="text-3xl font-bold text-white">{vendor.criteriaScores.length}</div>
+            <div className="text-xs text-gray-500 mt-1">Criteria Scored</div>
           </div>
         </div>
 
-        {/* Criteria used */}
-        <div className="mb-8 p-4 bg-gray-900 rounded-xl border border-gray-800">
-          <p className="text-xs text-gray-500 uppercase tracking-wider mb-2">Criteria extracted from tender</p>
-          <div className="flex flex-wrap gap-2">
-            {data.criteria.map((c, i) => (
-              <span key={i} className="px-3 py-1 bg-gray-800 rounded-full text-xs text-gray-300">
-                {c}
-              </span>
-            ))}
-          </div>
+        {/* Criteria breakdown */}
+        <div className="space-y-4">
+          {vendor.criteriaScores.map((c, i) => (
+            <div key={i} className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-medium text-white">{c.criterion}</h3>
+                <span className={`text-lg font-bold ${c.score >= 7 ? 'text-green-400' : c.score >= 5 ? 'text-yellow-400' : 'text-red-400'}`}>
+                  {c.score}/10
+                </span>
+              </div>
+              <div className="h-1.5 bg-gray-700 rounded-full mb-3">
+                <div
+                  className={`h-full rounded-full ${c.score >= 7 ? 'bg-green-500' : c.score >= 5 ? 'bg-yellow-500' : 'bg-red-500'}`}
+                  style={{ width: `${c.score * 10}%` }}
+                />
+              </div>
+              <p className="text-sm text-gray-400 mb-2">{c.rationale}</p>
+              {c.matchedText && (
+                <p className="text-xs text-blue-400 italic mb-2">&ldquo;{c.matchedText}&rdquo;</p>
+              )}
+              {c.gaps.length > 0 && (
+                <div className="flex flex-wrap gap-1 mt-2">
+                  {c.gaps.map((g, j) => (
+                    <span key={j} className="text-xs bg-red-900 text-red-300 px-2 py-0.5 rounded-full">{g}</span>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
         </div>
-
-        {/* Ranked table */}
-        <RankedTable results={data.results} tenderId={data.tenderId} />
-
       </div>
     </main>
   )
